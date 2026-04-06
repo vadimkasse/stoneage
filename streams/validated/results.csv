@@ -1,0 +1,11 @@
+url,status,diff,brightness,reconnect,tier,error_hint
+https://streaming.iowadot.gov/atms_mcast/cam-803.stream/playlist.m3u8,fail,NaN,NaN,no,3,dns
+https://streaming.iowadot.gov/atms_mcast/cam-401.stream/playlist.m3u8,fail,NaN,NaN,no,3,dns
+https://cwwp2.dot.ca.gov/data/d11/cctv/iphone/cctv001.m3u8,fail,NaN,NaN,no,3,unknown
+https://cwwp2.dot.ca.gov/data/d07/cctv/iphone/cctv556.m3u8,fail,NaN,NaN,no,3,unknown
+https://cotrip.org/device/assets/cctv/I-70_at_Eisenhower_Tunnel_West_Portal_70014.m3u8,fail,NaN,NaN,no,3,protocol
+https://cotrip.org/device/assets/cctv/I-25_at_17th_St_15160.m3u8,fail,NaN,NaN,no,3,protocol
+http://vss2live.dot.ga.gov:80/lo/gdot-cam-001.stream/playlist.m3u8,fail,NaN,NaN,no,3,timeout
+http://vss2live.dot.ga.gov:80/lo/gdot-cam-128.stream/playlist.m3u8,fail,NaN,NaN,no,3,timeout
+https://m3u8.ncdot.gov/i77_Trade_St.m3u8,fail,NaN,NaN,no,3,dns
+https://live.portofhelsinki.fi/hls/west_harbour.m3u8,fail,NaN,NaN,no,3,http_404

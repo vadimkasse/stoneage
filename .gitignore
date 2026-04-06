@@ -1,0 +1,16 @@
+output/
+__pycache__/
+*.pyc
+.DS_Store
+.env
+
+# Private folder with config, pool data, and extractor scripts
+private/
+
+# Legacy indexer artifacts
+samples.sqlite
+samples.jsonl
+lumen_indexer.py
+
+# Legacy stream data (kept for reference)
+streams/vdot_cams.json

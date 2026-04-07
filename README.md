@@ -1,6 +1,6 @@
-# LUMEN
+# STONEAGE Oil
 
-Autonomous daily music video track generator. Mixes drum loops with live radio stream (NPR), overlays video from VDOT (Virginia) traffic cameras, and adds subtitle with camera code.
+Autonomous daily music video track generator. Mixes highway ambient sounds with live radio stream (NPR), overlays video from VDOT (Virginia) traffic cameras, and adds subtitle with camera code.
 
 ---
 
@@ -8,9 +8,9 @@ Autonomous daily music video track generator. Mixes drum loops with live radio s
 
 One track per scheduled run (MP4 or WAV):
 
-- **Drums** — loop from library (time-stretched to 116 BPM)
+- **Ambience** — highway noise (`samples/static/highway_ambient.wav`)
 - **Radio** — live NPR stream (synchronized with drums)
-- **Mix** — drums at 0 dB + radio at −10 dB (before mastering)
+- **Mix** — ambience at 0 dB + radio at −10 dB (before mastering)
 - **Video** — ~30+ sec recording from random VDOT camera (1280×850, up to 5 retry attempts with different cameras if unavailable)
 - **Subtitle** — camera code in format `PRBRCK▶VA64103MON` (bottom of video, 55px)
 - **Mastering** — normalization to −3 dB peak + Limiter(threshold=−1.0)
@@ -22,26 +22,26 @@ One track per scheduled run (MP4 or WAV):
 ## Project Structure
 
 ```
-lumen/
-├── lumen_generator.py          # Main generator
+stoneage/
+├── stoneage_generator.py          # Main generator
 ├── HomeVideo-Regular.ttf       # Font for subtitles
 ├── requirements.txt            # Python dependencies
+├── radio_catalog.csv           # Radio stations catalog (TRACKED)
 ├── README.md                   # This file
 │
 ├── samples/
-│   └── full drum/              # Drum loop library
-│       └── Bpm{N}_*.wav        # Files MUST contain BPM in name
+│   └── static/                 # Static audio samples
+│       └── highway_ambient.wav # Highway noise
 │
 ├── private/                    # 🔒 NOT committed to git
 │   ├── camera_catalog.csv      # VDOT camera catalog (generated, not committed)
 │   ├── camera_pool.json        # Validated cameras (generated, not committed)
-│   ├── radio_catalog.csv       # Radio stations catalog (generated, not committed)
 │   └── radio_pool.json         # Validated radio stations (generated, not committed)
 │
 ├── streams/
-│   ├── lumen_cam_extractor.py       # VDOT API → camera_pool.json (validates connection)
+│   ├── stoneage_cam_extractor.py       # VDOT API → camera_pool.json (validates connection)
 │   ├── make_camera_catalog.py       # camera_pool.json → private/camera_catalog.csv
-│   ├── lumen_radio_extractor.py     # Radio Browser API → private/radio_pool.json (connection check)
+│   ├── stoneage_radio_extractor.py     # Radio Browser API → private/radio_pool.json (connection check)
 │   ├── make_radio_catalog.py        # private/radio_pool.json → private/radio_catalog.csv (tag filter)
 │   ├── clean_radio_catalog.py       # Regenerate catalog with different tag filters
 │   ├── radio_stats.py               # Analyze radio pool by region/country
@@ -71,7 +71,7 @@ Use LaunchAgent for scheduled generator execution:
 
 ```bash
 # 1. Copy plist to LaunchAgents
-cp com.lumen.daily.plist ~/Library/LaunchAgents/
+cp com.stoneage.daily.plist ~/Library/LaunchAgents/
 
 # 2. Create logs directory (if doesn't exist)
 mkdir -p ~/Library/Logs
@@ -81,7 +81,7 @@ mkdir -p ~/Library/Logs
 cp .env.example .env  # if available, or create manually
 
 # 4. Load into launchd
-launchctl load ~/Library/LaunchAgents/com.lumen.daily.plist
+launchctl load ~/Library/LaunchAgents/com.stoneage.daily.plist
 ```
 
 **Note:** The plist uses `/opt/miniconda3/bin/python3` as the interpreter. Adjust this path in the plist if your Python installation is in a different location.
@@ -89,11 +89,11 @@ launchctl load ~/Library/LaunchAgents/com.lumen.daily.plist
 ### Automation
 
 Once installed and configured:
-- **Runs according to LaunchAgent schedule** configured via `set_lumen_schedule.sh`
+- **Runs according to LaunchAgent schedule** configured via `set_stoneage_schedule.sh`
 - **Generates one track** with fresh drum loop and random VDOT camera
 - **Uploads to R2** automatically
 - **Notifies Make.com** webhook with video metadata
-- **Logs all activity** to `~/Library/Logs/lumen.log` and `lumen.error.log`
+- **Logs all activity** to `~/Library/Logs/stoneage.log` and `stoneage.error.log`
 
 No manual intervention needed — set it and forget it.
 
@@ -101,35 +101,35 @@ No manual intervention needed — set it and forget it.
 
 ```bash
 # Check if loaded and running
-launchctl list | grep lumen
+launchctl list | grep stoneage
 
 # View real-time logs
-tail -f ~/Library/Logs/lumen.log
-tail -f ~/Library/Logs/lumen.error.log
+tail -f ~/Library/Logs/stoneage.log
+tail -f ~/Library/Logs/stoneage.error.log
 
 # Manually trigger a run (for testing)
-launchctl kickstart -k gui/$(id -u)/com.lumen.daily
+launchctl kickstart -k gui/$(id -u)/com.stoneage.daily
 ```
 
 ### Stop
 
 ```bash
-launchctl unload ~/Library/LaunchAgents/com.lumen.daily.plist
+launchctl unload ~/Library/LaunchAgents/com.stoneage.daily.plist
 ```
 
 ### Configure Execution Time
 
-Use `set_lumen_schedule.sh` to control when the generator runs:
+Use `set_stoneage_schedule.sh` to control when the generator runs:
 
 ```bash
 # Run at 15:30 (3:30 PM) every day
-./set_lumen_schedule.sh HOURS="15" MIN="30" SEC="0"
+./set_stoneage_schedule.sh HOURS="15" MIN="30" SEC="0"
 
 # Run at multiple times (e.g., 8 AM, 2 PM, 8 PM with 20-sec delay before radio record)
-./set_lumen_schedule.sh HOURS="8 14 20" MIN="29" SEC="20"
+./set_stoneage_schedule.sh HOURS="8 14 20" MIN="29" SEC="20"
 
 # Run every hour at minute 1, with 30-second sleep before radio (effective start: :01:30)
-./set_lumen_schedule.sh HOURS="0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23" MIN="1" SEC="30"
+./set_stoneage_schedule.sh HOURS="0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23" MIN="1" SEC="30"
 ```
 
 **Parameters:**
@@ -209,7 +209,7 @@ pip install -r requirements.txt
 ### 2. Generate Track
 
 ```bash
-python3 lumen_generator.py
+python3 stoneage_generator.py
 ```
 
 Creates:
@@ -266,7 +266,7 @@ Drum loops are selected in round-robin order:
 
 ## Configuration
 
-All parameters at the top of `lumen_generator.py`:
+All parameters at the top of `stoneage_generator.py`:
 
 ```python
 TARGET_BPM     = 116           # Target BPM for time-stretch
@@ -286,7 +286,7 @@ When you need to expand the available camera database or update VDOT data:
 
 ```bash
 # 1. Download fresh data from VDOT API
-python3 streams/lumen_cam_extractor.py
+python3 streams/stoneage_cam_extractor.py
 
 # 2. Transform into working catalog
 python3 streams/make_camera_catalog.py
@@ -297,11 +297,11 @@ python3 streams/make_camera_catalog.py
 ```
 VDOT API
   ↓
-lumen_cam_extractor.py → private/camera_pool.json (intermediate source of truth: validated cameras)
+stoneage_cam_extractor.py → private/camera_pool.json (intermediate source of truth: validated cameras)
                       ↓
                       make_camera_catalog.py → private/camera_catalog.csv (runtime subset)
                                             ↓
-                                            lumen_generator.py (reads CSV at runtime)
+                                            stoneage_generator.py (reads CSV at runtime)
 ```
 
 **Key point:** generator only reads `private/camera_catalog.csv`, never touches `private/camera_pool.json` directly.
@@ -334,17 +334,18 @@ Three-stage process with separate include/exclude filtering:
 ```
 Radio Browser API
   ↓
-lumen_radio_extractor.py
+stoneage_radio_extractor.py
   (fetches by include-tags from radio_tags.md)
   ↓
 private/radio_pool.json
   (raw pool: all stations matching include criteria)
   ↓
 make_radio_catalog.py
-  (filters pool by exclude-tags from radio_tags.md)
-  ↓
-private/radio_catalog.csv
-  (working catalog: used by lumen_generator.py)
+(filters pool by exclude-tags from radio_tags.md)
+↓
+radio_catalog.csv
+(working catalog: used by stoneage_generator.py)
+
 ```
 
 ### Process
@@ -352,7 +353,7 @@ private/radio_catalog.csv
 #### 1. Build Pool (monthly/quarterly)
 ```bash
 # Fetch stations from Radio Browser API matching include-tags
-python3 streams/lumen_radio_extractor.py
+python3 streams/stoneage_radio_extractor.py
 # → creates/updates private/radio_pool.json
 ```
 
@@ -399,9 +400,9 @@ No action needed! Runtime filters (`include_countries`, `exclude_countries`, `in
 | `## exclude_languages` | Runtime | Exclude (blacklist) | Language field (substring) | `chinese`, `mandarin` |
 
 **Multi-level filtering:**
-1. **Extractor** (`lumen_radio_extractor.py`) — fetches stations matching `## include` tags
+1. **Extractor** (`stoneage_radio_extractor.py`) — fetches stations matching `## include` tags
 2. **Catalog-time** (`make_radio_catalog.py`) — filters by `## exclude` tags before CSV export
-3. **Runtime** (`lumen_generator.py`) — applies include/exclude filters when loading pool:
+3. **Runtime** (`stoneage_generator.py`) — applies include/exclude filters when loading pool:
    - If `include_countries` defined → accept only these countries
    - If `exclude_countries` defined → reject these countries
    - If `include_languages` defined → accept only these languages
@@ -482,7 +483,7 @@ NPR ICE,https://npr-ice.streamguys1.com/live.mp3,United States,US,English,news
 BBC Radio 4,https://...,United Kingdom,GB,English,talk
 ```
 
-### Runtime Validation (lumen_generator.py)
+### Runtime Validation (stoneage_generator.py)
 
 Each time generator runs:
 
@@ -607,7 +608,7 @@ This enables downstream workflows in Make.com (posting to social media, database
   - Each installation builds its own via extractors
 - Configuration files (`streams/radio_tags.md`) **are** committed — these control filtering behavior
 - Cameras are loaded from `private/camera_catalog.csv` (built from `private/camera_pool.json`)
-- Radio stations are loaded from `private/radio_catalog.csv` (built from `private/radio_pool.json` and filtered by `streams/radio_tags.md`)
+- Radio stations are loaded from `radio_catalog.csv` (built from `private/radio_pool.json` and filtered by `streams/radio_tags.md`)
 - Raw radio is archived in `output/radio_raw/` for analysis
 - **If all radio streams fail** (5 pool stations + NPR fallback) — generation is **aborted** with error (no file saved or posted)
 - If video recording fails — only WAV is saved
@@ -633,7 +634,7 @@ Prevents overwriting `camera_catalog.csv` with empty or corrupted pool.
 ### 2. Backup before source of truth change
 
 ```python
-# streams/lumen_cam_extractor.py
+# streams/stoneage_cam_extractor.py
 import shutil
 backup_path = f"{camera_pool_path}.backup.{datetime.now().isoformat()}"
 shutil.copy(camera_pool_path, backup_path)
@@ -649,7 +650,7 @@ python3 streams/update_catalog.py
 ```
 
 Instead of manual sequence:
-1. `lumen_cam_extractor.py`
+1. `stoneage_cam_extractor.py`
 2. `make_camera_catalog.py`
 
 Ensures both steps are executed in correct order with guardrails.

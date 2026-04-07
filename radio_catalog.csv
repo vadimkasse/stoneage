@@ -1,0 +1,4 @@
+name,url,country,countrycode,language,tags
+Bloomberg Radio,http://playerservices.streamtheworld.com/api/livestream-redirect/WBBRAMAAC_SC,United States,US,English,news|finance
+WNYC News,https://fm939.wnyc.org/wnycfm.mp3,United States,US,English,news|talk
+NPR,https://npr-ice.streamguys1.com/live.mp3,United States,US,English,news|talk

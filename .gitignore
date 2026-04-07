@@ -10,7 +10,7 @@ private/
 # Legacy indexer artifacts
 samples.sqlite
 samples.jsonl
-lumen_indexer.py
+stoneage_indexer.py
 
 # Legacy stream data (kept for reference)
 streams/vdot_cams.json

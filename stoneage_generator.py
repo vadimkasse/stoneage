@@ -77,6 +77,8 @@ OUTPUT_DIR       = Path(__file__).parent / "output"
 CAMERA_CATALOG   = Path(__file__).parent / "private" / "camera_catalog.csv"
 RADIO_CATALOG    = Path(__file__).parent / "radio_catalog.csv"
 FONT_PATH        = Path(__file__).parent / "HomeVideo-Bold.ttf"
+FLINTSTONE_FONT_PATH = Path(__file__).parent / "flintstone.ttf"
+STONEAGE_LAYER_PATH = Path(__file__).parent / "the_StoneAge_layer.png"
 
 SR               = 44100
 DURATION_MS      = 5_000              # Debug mode: 5s (Standard: 59000)
@@ -550,57 +552,38 @@ def record_video(url: str, out_mp4: Path, duration_ms: int) -> bool:
 
 def create_subtitle_overlay(lines: list[dict], width: int, height: int) -> Path | None:
     """
-    Create a transparent PNG with GTA Retro HUD style subtitles.
-    Top-aligned, centered horizontally. Black 3px stroke (outline).
-    No background plates or drop shadows.
+    Create a transparent PNG with StoneAge style subtitles.
+    Supports specific font, size, and coordinates for each line.
     """
     try:
         # Create transparent image
         img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img)
 
-        # Load font
-        font_size = 90
-        try:
-            font = ImageFont.truetype(str(FONT_PATH), font_size)
-        except Exception:
-            font = ImageFont.load_default()
-
-        # Calculate heights and spacing
-        line_spacing = 15
-        line_data = []
+        # Draw each line
         for item in lines:
             text = item.get("text", "")
-            bbox = draw.textbbox((0, 0), text, font=font)
-            w = bbox[2] - bbox[0]
-            h = bbox[3] - bbox[1]
-            line_data.append({"text": text, "bbox": bbox, "w": w, "h": h, "color": item.get("color", "#FFFFFF")})
-
-        # Calculate total height for vertical centering
-        total_text_height = sum(d["h"] for d in line_data) + (len(lines) - 1) * line_spacing
-        current_y = (height - total_text_height) // 2
-
-        # Draw each line's text with outline
-        for data in line_data:
-            text = data["text"]
-            text_color_hex = data["color"].lstrip('#')
-            text_rgb = tuple(int(text_color_hex[i:i+2], 16) for i in (0, 2, 4))
+            color_hex = item.get("color", "#FFFFFF").lstrip('#')
+            rgb = tuple(int(color_hex[i:i+2], 16) for i in (0, 2, 4))
             
-            w, h = data["w"], data["h"]
-            # Center horizontally
-            x = (width - w) // 2
+            size = item.get("size", 60)
+            x = item.get("x", 580)
+            y = item.get("y", 360)
+            font_path = item.get("font", FLINTSTONE_FONT_PATH)
+            
+            try:
+                font = ImageFont.truetype(str(font_path), size)
+            except Exception:
+                font = ImageFont.load_default()
             
             # Draw text with black pixel outline (stroke)
-            # stroke_width=3 for GTA Retro look
-            draw.text((x, current_y), text, font=font, fill=text_rgb + (255,),
+            draw.text((x, y), text, font=font, fill=rgb + (255,),
                       stroke_width=3, stroke_fill=(0, 0, 0, 255))
-            
-            current_y += h + line_spacing
 
         # Save to temp file
         temp_png = Path(tempfile.gettempdir()) / f"subtitle_{id(img)}.png"
         img.save(str(temp_png), "PNG")
-        print("GTA Retro UI Style applied with pixel outline.")
+        print("StoneAge Style subtitles applied.")
         return temp_png
     except Exception as e:
         print(f"  [subtitle error] {e}")
@@ -625,38 +608,36 @@ def mux_audio_video(audio_wav: Path, video_mp4: Path, out_mp4: Path,
     cmd_inputs = [
         "ffmpeg", "-y",
         "-i", str(video_mp4),
+        "-i", str(STONEAGE_LAYER_PATH),
         "-an",
     ]
 
     # Pipeline: 
     # 1. Scale and Crop (from copy.py)
-    # 2. No Pixelation (clean render)
+    # 2. Overlay the static StoneAge layer
     pixel_filter = "scale=1280:960,crop=1280:850:0:130"
+    vf = f"[0:v]{pixel_filter}[vid];[vid][1:v]overlay=0:0"
 
     if subtitle_lines:
         subtitle_png = create_subtitle_overlay(subtitle_lines, target_w, target_h)
         if subtitle_png and subtitle_png.exists():
             cmd_inputs.extend(["-i", str(subtitle_png)])
-            vf = f"[0:v]{pixel_filter}[px];[px][1:v]overlay=0:0[final]"
-            audio_input_idx = 2
+            vf += "[bg];[bg][2:v]overlay=0:0[final]"
+            audio_input_idx = 3
         else:
-            vf = pixel_filter
-            audio_input_idx = 1
+            vf += "[final]"
+            audio_input_idx = 2
     else:
-        vf = pixel_filter
-        audio_input_idx = 1
+        vf += "[final]"
+        audio_input_idx = 2
 
     cmd_inputs.extend([
         "-i", str(audio_wav),
         "-t", f"{duration_s:.3f}",
     ])
 
-    if subtitle_lines and subtitle_png and subtitle_png.exists():
-        cmd_inputs.extend(["-filter_complex", vf])
-        cmd_inputs.extend(["-map", "[final]", "-map", f"{audio_input_idx}:a"])
-    else:
-        cmd_inputs.extend(["-vf", vf])
-        cmd_inputs.extend(["-map", "0:v", "-map", f"{audio_input_idx}:a"])
+    cmd_inputs.extend(["-filter_complex", vf])
+    cmd_inputs.extend(["-map", "[final]", "-map", f"{audio_input_idx}:a"])
 
     cmd_inputs.extend([
         "-c:v", "libx264",
@@ -779,12 +760,26 @@ def generate() -> Path:
     # Brent Subtitle Logic
     b_symbol = "▲" if brent_cur > brent_prev else "▼" if brent_cur < brent_prev else ""
     b_color = "#FF3F3F" if brent_cur > brent_prev else "#1DE9B6" if brent_cur < brent_prev else "#D1D1D1"
-    subtitle_lines.append({"text": f"BRENT  ${brent_cur:.2f} {b_symbol}", "color": b_color})
+    subtitle_lines.append({
+        "text": f"{brent_cur:.2f} {b_symbol}", 
+        "color": b_color,
+        "size": 60,
+        "x": 580,
+        "y": 360,
+        "font": FLINTSTONE_FONT_PATH
+    })
 
     # Gas Subtitle Logic
     g_symbol = "▲" if gas_cur > gas_prev else "▼" if gas_cur < gas_prev else ""
     g_color = "#FF3F3F" if gas_cur > gas_prev else "#1DE9B6" if gas_cur < gas_prev else "#D1D1D1"
-    subtitle_lines.append({"text": f"VA GAS   ${gas_cur:.2f} {g_symbol}", "color": g_color})
+    subtitle_lines.append({
+        "text": f"{gas_cur:.2f} {g_symbol}", 
+        "color": g_color,
+        "size": 45,
+        "x": 580,
+        "y": 445,
+        "font": FLINTSTONE_FONT_PATH
+    })
 
     # 2. Select ambience
     sample_files = sorted(list(SAMPLES_DIR.glob("*.wav")) + list(SAMPLES_DIR.glob("*.mp3")))

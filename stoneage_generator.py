@@ -81,10 +81,10 @@ FLINTSTONE_FONT_PATH = Path(__file__).parent / "flintstone.ttf"
 STONEAGE_LAYER_PATH = Path(__file__).parent / "the_StoneAge_layer.png"
 
 SR               = 44100
-DURATION_MS      = 5_000              # Debug mode: 5s (Standard: 59000)
+DURATION_MS      = int(os.getenv("STONEAGE_DURATION_MS", 59_000))
 RADIO_URL        = "https://npr-ice.streamguys1.com/live.mp3"  # fallback
 RADIO_NAME       = "NPR_ICE"          # fallback name
-RADIO_LEVEL_DB   = -3                 # radio volume in mix (relative to ambience at 0 dB)
+RADIO_LEVEL_DB   = -10                # radio volume in mix (relative to ambience at 0 dB)
 
 VIDEO_TIMEOUT    = 60                # max seconds to wait for video recording
 
@@ -95,6 +95,8 @@ RADIO_VALIDATE_S = 15                # seconds to record for validation
 
 # Day names for subtitle (Monday → MON, Tuesday → THE, etc.)
 DAY_NAMES      = ["MON", "THE", "WED", "THU", "FRI", "SAT", "SUN"]
+
+_vad_model = None
 
 
 # ── Market Data Engines ──────────────────────────────────────────────────────
@@ -119,6 +121,8 @@ def get_brent_price() -> tuple[float, float]:
 
 def get_va_gas_price() -> tuple[float, float]:
     """Calculate gas prices using RB=F + 0.95 formula."""
+    if not yf:
+        return 3.55, 3.52
     try:
         ticker = yf.Ticker("RB=F")
         info = ticker.fast_info
@@ -165,14 +169,20 @@ def record_radio(url: str, out_wav: Path, duration_ms: int, station_name: str = 
                 "-i", url,
                 "-t", f"{duration_s:.3f}",
                 "-ar", str(SR), "-ac", "2",
-                "-map", "0:a:0",
-                "-vn", "-sn",
                 str(out_wav),
             ],
             timeout=int(duration_s) + 20,
             capture_output=True,
         )
         if result.returncode == 0 and out_wav.exists():
+            # Post-record silence check: reject near-silent recordings
+            try:
+                check_seg = AudioSegment.from_file(str(out_wav))
+                if check_seg.dBFS < -40:
+                    print(f"  [radio] recorded file is near-silent ({check_seg.dBFS:.0f} dBFS), rejecting")
+                    return False
+            except Exception:
+                pass  # if check fails, trust returncode
             return True
         stderr_msg = result.stderr.decode(errors="ignore")[:500]
         print(f"  [radio error] {stderr_msg}")
@@ -232,8 +242,6 @@ def validate_radio_content(url: str) -> tuple[bool, str]:
             "-t", str(RADIO_VALIDATE_S),
             "-ar", "16000",
             "-ac", "1",
-            "-map", "0:a:0",
-            "-vn", "-sn",
             str(tmp_path),
         ]
 
@@ -253,7 +261,11 @@ def validate_radio_content(url: str) -> tuple[bool, str]:
         # Check speech ratio (if VAD available)
         if load_silero_vad:
             try:
-                vad_model = load_silero_vad()
+                global _vad_model
+                if _vad_model is None:
+                    _vad_model = load_silero_vad()
+                vad_model = _vad_model
+
                 audio_array = np.array(audio.get_array_of_samples(), dtype=np.float32)
                 audio_array = audio_array / (2 ** (8 * audio.sample_width - 1))
 
@@ -552,38 +564,42 @@ def record_video(url: str, out_mp4: Path, duration_ms: int) -> bool:
 
 def create_subtitle_overlay(lines: list[dict], width: int, height: int) -> Path | None:
     """
-    Create a transparent PNG with StoneAge style subtitles.
-    Supports specific font, size, and coordinates for each line.
+    Create a PNG with StoneAge style subtitles drawn directly onto the background layer.
+    This avoids color mismatch caused by multiple ffmpeg overlays.
     """
     try:
-        # Create transparent image
-        img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+        # Load background layer
+        if STONEAGE_LAYER_PATH.exists():
+            img = Image.open(str(STONEAGE_LAYER_PATH)).convert("RGBA")
+        else:
+            img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+            
         draw = ImageDraw.Draw(img)
 
         # Draw each line
-        for item in lines:
-            text = item.get("text", "")
-            color_hex = item.get("color", "#FFFFFF").lstrip('#')
-            rgb = tuple(int(color_hex[i:i+2], 16) for i in (0, 2, 4))
-            
-            size = item.get("size", 60)
-            x = item.get("x", 580)
-            y = item.get("y", 360)
-            font_path = item.get("font", FLINTSTONE_FONT_PATH)
-            
-            try:
-                font = ImageFont.truetype(str(font_path), size)
-            except Exception:
-                font = ImageFont.load_default()
-            
-            # Draw text with black pixel outline (stroke)
-            draw.text((x, y), text, font=font, fill=rgb + (255,),
-                      stroke_width=3, stroke_fill=(0, 0, 0, 255))
+        if lines:
+            for item in lines:
+                text = item.get("text", "")
+                color_hex = item.get("color", "#FFFFFF").lstrip('#')
+                rgb = tuple(int(color_hex[i:i+2], 16) for i in (0, 2, 4))
+                
+                size = item.get("size", 60)
+                x = item.get("x", 580)
+                y = item.get("y", 360)
+                font_path = item.get("font", FLINTSTONE_FONT_PATH)
+                
+                try:
+                    font = ImageFont.truetype(str(font_path), size)
+                except Exception:
+                    font = ImageFont.load_default()
+                
+                # Draw text
+                draw.text((x, y), text, font=font, fill=rgb + (255,))
 
         # Save to temp file
-        temp_png = Path(tempfile.gettempdir()) / f"subtitle_{id(img)}.png"
+        temp_png = Path(tempfile.gettempdir()) / f"combined_overlay_{id(img)}.png"
         img.save(str(temp_png), "PNG")
-        print("StoneAge Style subtitles applied.")
+        print("StoneAge combined overlay created.")
         return temp_png
     except Exception as e:
         print(f"  [subtitle error] {e}")
@@ -594,9 +610,7 @@ def mux_audio_video(audio_wav: Path, video_mp4: Path, out_mp4: Path,
                     duration_ms: int, subtitle_lines: list[dict] = None) -> bool:
     """
     Mux audio WAV + video MP4 into final MP4.
-    Video is scaled to 1280x960 and cropped to 1280x850 (from copy.py).
-    Then pixelated to 128x85 and back.
-    Subtitle is overlaid HUD-style at the top.
+    The background layer and subtitles are pre-composited into a single overlay PNG.
     """
     duration_s = duration_ms / 1000.0
     print(f"  Muxing audio + video…")
@@ -604,45 +618,44 @@ def mux_audio_video(audio_wav: Path, video_mp4: Path, out_mp4: Path,
     # Target dimensions from original stoneage processing
     target_w, target_h = 1280, 850
 
-    subtitle_png = None
+    # Create the single combined overlay (background + optional subtitles)
+    overlay_png = create_subtitle_overlay(subtitle_lines or [], target_w, target_h)
+    
     cmd_inputs = [
         "ffmpeg", "-y",
         "-i", str(video_mp4),
-        "-i", str(STONEAGE_LAYER_PATH),
-        "-an",
     ]
 
-    # Pipeline: 
-    # 1. Scale and Crop (from copy.py)
-    # 2. Overlay the static StoneAge layer
-    pixel_filter = "scale=1280:960,crop=1280:850:0:130"
-    vf = f"[0:v]{pixel_filter}[vid];[vid][1:v]overlay=0:0"
-
-    if subtitle_lines:
-        subtitle_png = create_subtitle_overlay(subtitle_lines, target_w, target_h)
-        if subtitle_png and subtitle_png.exists():
-            cmd_inputs.extend(["-i", str(subtitle_png)])
-            vf += "[bg];[bg][2:v]overlay=0:0[final]"
-            audio_input_idx = 3
-        else:
-            vf += "[final]"
-            audio_input_idx = 2
-    else:
-        vf += "[final]"
+    if overlay_png and overlay_png.exists():
+        cmd_inputs.extend(["-i", str(overlay_png)])
         audio_input_idx = 2
+        pixel_filter = "scale=1280:960,crop=1280:850:0:130"
+        vf = f"[0:v]{pixel_filter}[vid];[vid][1:v]overlay=0:0[final]"
+    else:
+        audio_input_idx = 1
+        vf = "scale=1280:960,crop=1280:850:0:130"
 
     cmd_inputs.extend([
         "-i", str(audio_wav),
         "-t", f"{duration_s:.3f}",
     ])
 
-    cmd_inputs.extend(["-filter_complex", vf])
-    cmd_inputs.extend(["-map", "[final]", "-map", f"{audio_input_idx}:a"])
+    if overlay_png and overlay_png.exists():
+        cmd_inputs.extend(["-filter_complex", vf])
+        cmd_inputs.extend(["-map", "[final]", "-map", f"{audio_input_idx}:a"])
+    else:
+        cmd_inputs.extend(["-vf", vf])
+        cmd_inputs.extend(["-map", "0:v", "-map", f"{audio_input_idx}:a"])
 
     cmd_inputs.extend([
         "-c:v", "libx264",
+        "-color_range", "pc",
+        "-colorspace", "bt709",
+        "-color_primaries", "bt709",
+        "-color_trc", "bt709",
         "-preset", "fast",
         "-crf", "23",
+        "-pix_fmt", "yuvj420p",
         "-c:a", "aac",
         "-b:a", "192k",
         "-shortest",
@@ -652,9 +665,9 @@ def mux_audio_video(audio_wav: Path, video_mp4: Path, out_mp4: Path,
     try:
         result = subprocess.run(cmd_inputs, timeout=120, capture_output=True)
         
-        if subtitle_png and subtitle_png.exists():
+        if overlay_png and overlay_png.exists():
             try:
-                subtitle_png.unlink()
+                overlay_png.unlink()
             except Exception:
                 pass
         if result.returncode == 0 and out_mp4.exists():
@@ -664,9 +677,9 @@ def mux_audio_video(audio_wav: Path, video_mp4: Path, out_mp4: Path,
         return False
     except Exception as e:
         print(f"  [mux error] {e}")
-        if subtitle_png and subtitle_png.exists():
+        if overlay_png and overlay_png.exists():
             try:
-                subtitle_png.unlink()
+                overlay_png.unlink()
             except Exception:
                 pass
         return False
@@ -759,25 +772,25 @@ def generate() -> Path:
     
     # Brent Subtitle Logic
     b_symbol = "▲" if brent_cur > brent_prev else "▼" if brent_cur < brent_prev else ""
-    b_color = "#FF3F3F" if brent_cur > brent_prev else "#1DE9B6" if brent_cur < brent_prev else "#D1D1D1"
+    b_color = "#dc0000" if brent_cur > brent_prev else "#00500a" if brent_cur < brent_prev else "#4a4a3c"
     subtitle_lines.append({
-        "text": f"{brent_cur:.2f} {b_symbol}", 
+        "text": f"${brent_cur:.1f} {b_symbol}", 
         "color": b_color,
         "size": 60,
-        "x": 580,
-        "y": 360,
+        "x": 570,
+        "y": 307,
         "font": FLINTSTONE_FONT_PATH
     })
 
     # Gas Subtitle Logic
     g_symbol = "▲" if gas_cur > gas_prev else "▼" if gas_cur < gas_prev else ""
-    g_color = "#FF3F3F" if gas_cur > gas_prev else "#1DE9B6" if gas_cur < gas_prev else "#D1D1D1"
+    g_color = "#dc0000" if gas_cur > gas_prev else "#00500a" if gas_cur < gas_prev else "#4a4a3c"
     subtitle_lines.append({
-        "text": f"{gas_cur:.2f} {g_symbol}", 
+        "text": f"${gas_cur:.2f} {g_symbol}", 
         "color": g_color,
         "size": 45,
-        "x": 580,
-        "y": 445,
+        "x": 588,
+        "y": 404,
         "font": FLINTSTONE_FONT_PATH
     })
 
@@ -790,7 +803,8 @@ def generate() -> Path:
     cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", str(ambience_path)]
     try:
         total_duration = float(subprocess.check_output(cmd).decode().strip())
-    except:
+    except Exception as e:
+        print(f"  [ffprobe] {e}")
         total_duration = 0.0
 
     target_s = DURATION_MS / 1000.0
@@ -827,32 +841,78 @@ def generate() -> Path:
 
         radio_ok = False
         radio_attempts = 0
+        max_radio_attempts = 5
         radio_pool = load_radio_pool()
         cur_url, cur_name, cur_code = radio_url, radio_name, radio_countrycode
 
-        while not radio_ok and radio_attempts < 5:
+        while not radio_ok and radio_attempts < max_radio_attempts:
+            # Delete stale radio file before each attempt to prevent ghost audio
+            if radio_wav.exists():
+                try:
+                    radio_wav.unlink()
+                except Exception:
+                    pass
+
+            print(f"  [preflight] attempt {radio_attempts + 1}/{max_radio_attempts} — {cur_name}")
             can_connect, reason_pre = preflight(cur_url)
             if can_connect:
+                print(f"  [validate] attempt {radio_attempts + 1}/{max_radio_attempts} — {cur_name}")
                 content_ok, reason_val = validate_radio_content(cur_url)
                 if content_ok:
+                    print(f"  [record] attempt {radio_attempts + 1}/{max_radio_attempts} — {cur_name}")
                     radio_ok = record_radio(cur_url, radio_wav, DURATION_MS, cur_name)
+                    if not radio_ok:
+                        print(f"  [radio] record failed for {cur_name}")
                 else:
                     print(f"  [radio skip] {cur_name}: {reason_val}")
             else:
                 print(f"  [radio skip] {cur_name}: connection {reason_pre}")
-            
+
             if not radio_ok:
                 radio_attempts += 1
-                if radio_pool:
-                    st = rng.choice(radio_pool)
-                    cur_url, cur_name, cur_code = st["url"], st["name"], st["countrycode"]
-        
+                if radio_attempts < max_radio_attempts and radio_pool:
+                    # Remove failed station from pool to avoid re-picking
+                    radio_pool = [s for s in radio_pool if s["url"] != cur_url]
+                    if radio_pool:
+                        st = rng.choice(radio_pool)
+                        cur_url, cur_name, cur_code = st["url"], st["name"], st["countrycode"]
+                        print(f"    [retry] {cur_name} ({cur_code})")
+
+        # NPR fallback with full validation (matching lumen behavior)
         if not radio_ok:
-            radio_ok = record_radio(RADIO_URL, radio_wav, DURATION_MS, RADIO_NAME)
-            cur_url, cur_name, cur_code = RADIO_URL, RADIO_NAME, "US"
+            if radio_pool:
+                print(f"  [radio] All pool attempts failed ({radio_attempts}/{max_radio_attempts}) — trying NPR fallback…")
+            else:
+                print(f"  [radio] Filtered pool is empty — trying NPR fallback…")
+
+            # Delete stale file before NPR attempt
+            if radio_wav.exists():
+                try:
+                    radio_wav.unlink()
+                except Exception:
+                    pass
+
+            print(f"  [preflight] NPR fallback")
+            can_connect, reason = preflight(RADIO_URL)
+            if can_connect:
+                print(f"  [validate] NPR fallback")
+                content_ok, reason = validate_radio_content(RADIO_URL)
+                if content_ok:
+                    print(f"  [record] NPR fallback")
+                    radio_ok = record_radio(RADIO_URL, radio_wav, DURATION_MS, RADIO_NAME)
+                else:
+                    print(f"  [NPR validation failed] {reason}")
+            else:
+                print(f"  [NPR preflight failed] {reason}")
+
+            if radio_ok:
+                cur_url, cur_name, cur_code = RADIO_URL, RADIO_NAME, "US"
 
         if not radio_ok:
-            raise RuntimeError("All radio failed")
+            raise RuntimeError(
+                f"[FATAL] All radio streams exhausted ({max_radio_attempts} pool + NPR fallback). "
+                f"Cannot generate track without valid audio source."
+            )
 
         radio_seg = load_seg(radio_wav)[:DURATION_MS]
         mix = ambience_seg.overlay(radio_seg + RADIO_LEVEL_DB)
@@ -864,12 +924,14 @@ def generate() -> Path:
         video_attempts = 0
         pool = load_camera_pool()
         while not video_ok and video_attempts < 5 and camera:
+            cam_id = camera.get("id", "nocam")
             video_ok = record_video(camera.get("url", ""), video_mp4, DURATION_MS)
             if not video_ok:
                 video_attempts += 1
                 camera = rng.choice(pool) if pool else None
 
         # Assemble
+        cam_id = camera.get("id", "nocam") if camera else "nocam"
         safe_station = re.sub(r'[^a-zA-Z0-9_-]', '_', cur_name)
         out_name = f"{today_str}_{hhmm_str}_cam{cam_id}_{safe_station}.mp4"
         out_path = OUTPUT_DIR / out_name

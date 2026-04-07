@@ -3,3 +3,4 @@ export PATH=/opt/homebrew/bin:/opt/homebrew/sbin:/opt/miniconda3/bin:/usr/local/
 SEC="${1:-0}"
 sleep "$SEC"
 /opt/miniconda3/bin/python3 /Users/vadimkasse/Projects/stoneage/stoneage_generator.py
+/opt/miniconda3/bin/python3 /Users/vadimkasse/Projects/stoneage/stoneage_tweeter.py

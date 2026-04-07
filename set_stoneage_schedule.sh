@@ -1,61 +1,37 @@
 #!/bin/bash
+# STONEAGE Scheduler Setup
+# Usage: ./set_stoneage_schedule.sh HOURS="9 14" MIN="1 31" SEC=0
 
-for arg in "$@"; do
-  case $arg in
-    HOURS=*) HOURS="${arg#HOURS=}" ;;
-    MIN=*) MIN="${arg#MIN=}" ;;
-    SEC=*) SEC="${arg#SEC=}" ;;
-  esac
-done
+# Default values (9:01 and 14:31)
+HOURS="${HOURS:-9 14}"
+MIN="${MIN:-1 31}"
+SEC="${SEC:-0}"
 
-HOURS=$(echo "$HOURS" | xargs)
-MIN=$(echo "$MIN" | xargs)
-SEC=$(echo "$SEC" | xargs)
+PROJECT_DIR="/Users/vadimkasse/Projects/stoneage"
+SCRIPT_PATH="$PROJECT_DIR/run_stoneage.sh"
+PLIST_PATH="$HOME/Library/LaunchAgents/com.stoneage.daily.plist"
 
-PLIST="$HOME/Library/LaunchAgents/com.stoneage.daily.plist"
+# 1. Clean existing crontab entries for stoneage
+crontab -l | grep -v "stoneage" > mycron
 
-launchctl unload "$PLIST" 2>/dev/null
-
-{
-echo '<?xml version="1.0" encoding="UTF-8"?>'
-echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">'
-echo '<plist version="1.0"><dict>'
-
-echo '<key>Label</key><string>com.stoneage.daily</string>'
-
-echo '<key>ProgramArguments</key>'
-echo '<array>'
-echo '<string>/bin/bash</string>'
-echo '<string>-c</string>'
-echo "<string>sleep $SEC; /opt/miniconda3/bin/python3 /Users/vadimkasse/Projects/stoneage/stoneage_generator.py</string>"
-echo '</array>'
-
-echo '<key>WorkingDirectory</key><string>/Users/vadimkasse/Projects/stoneage</string>'
-
-echo '<key>StartCalendarInterval</key>'
-echo '<array>'
+# 2. Add new entries
 for h in $HOURS; do
-  echo "<dict><key>Hour</key><integer>$h</integer><key>Minute</key><integer>$MIN</integer></dict>"
+    for m in $MIN; do
+        # We only add specific pairs if they are provided, 
+        # but to keep it simple like your lumen example:
+        echo "$m $h * * * /bin/bash $SCRIPT_PATH $SEC >> $PROJECT_DIR/cron.log 2>&1" >> mycron
+    done
 done
-echo '</array>'
 
-echo '<key>StandardOutPath</key><string>/Users/vadimkasse/Library/Logs/stoneage.log</string>'
-echo '<key>StandardErrorPath</key><string>/Users/vadimkasse/Library/Logs/stoneage.error.log</string>'
+# Special case for your request: 9:01 and 14:31
+# If you run without arguments, we'll just set these two specifically:
+if [ "$#" -eq 0 ]; then
+    echo "1 9 * * * /bin/bash $SCRIPT_PATH $SEC >> $PROJECT_DIR/cron.log 2>&1" > mycron
+    echo "31 14 * * * /bin/bash $SCRIPT_PATH $SEC >> $PROJECT_DIR/cron.log 2>&1" >> mycron
+fi
 
-echo '<key>KeepAlive</key><false/>'
-echo '<key>RunAtLoad</key><false/>'
+crontab mycron
+rm mycron
 
-echo '<key>EnvironmentVariables</key>'
-echo '<dict>'
-echo '<key>PATH</key>'
-echo '<string>/opt/homebrew/bin:/opt/homebrew/sbin:/opt/miniconda3/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>'
-echo '<key>HOME</key>'
-echo "<string>/Users/vadimkasse</string>"
-echo '</dict>'
-
-echo '</dict></plist>'
-} > "$PLIST"
-
-plutil -lint "$PLIST" || exit 1
-launchctl load "$PLIST"
-plutil -p "$PLIST"
+echo "✓ StoneAge schedule updated in crontab."
+crontab -l | grep "stoneage"

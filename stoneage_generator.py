@@ -709,8 +709,9 @@ def apply_mastering(seg: AudioSegment) -> AudioSegment:
 
 # ── Notifications ──────────────────────────────────────────────────────────────
 
-def notify_make(out_path: Path, subtitle_code: str, camera: dict,
-                radio_name: str = "", radio_countrycode: str = "") -> None:
+def notify_make(out_path: Path, camera: dict,
+                radio_name: str = "", radio_countrycode: str = "",
+                market_info: dict = None) -> None:
     """Upload to R2 and notify Make.com webhook."""
     r2_public_url = os.getenv("R2_PUBLIC_URL")
     r2_endpoint = os.getenv("R2_ENDPOINT")
@@ -719,42 +720,67 @@ def notify_make(out_path: Path, subtitle_code: str, camera: dict,
     r2_app_key = os.getenv("R2_APP_KEY")
     make_webhook_url = os.getenv("MAKE_WEBHOOK_URL")
 
-    if not all([r2_public_url, r2_endpoint, r2_bucket, r2_key_id, r2_app_key]):
-        return
+    video_url = ""
 
-    try:
-        if not boto3:
-            return
-        s3_client = boto3.client(
-            "s3",
-            endpoint_url=r2_endpoint,
-            aws_access_key_id=r2_key_id,
-            aws_secret_access_key=r2_app_key,
-        )
-        file_key = out_path.name
-        s3_client.upload_file(
-            str(out_path),
-            r2_bucket,
-            file_key,
-            ExtraArgs={"ContentType": "video/mp4"},
-        )
-        if make_webhook_url and requests:
-            video_url = f"{r2_public_url.rstrip('/')}/{file_key}"
+    # 1. Try R2 Upload if configured
+    if all([r2_public_url, r2_endpoint, r2_bucket, r2_key_id, r2_app_key]):
+        try:
+            if boto3:
+                s3_client = boto3.client(
+                    "s3",
+                    endpoint_url=r2_endpoint,
+                    aws_access_key_id=r2_key_id,
+                    aws_secret_access_key=r2_app_key,
+                )
+                file_key = out_path.name
+                s3_client.upload_file(
+                    str(out_path),
+                    r2_bucket,
+                    file_key,
+                    ExtraArgs={"ContentType": "video/mp4"},
+                )
+                video_url = f"{r2_public_url.rstrip('/')}/{file_key}"
+                print(f"✓ Uploaded to R2: {file_key}")
+        except Exception as e:
+            print(f"  [R2 error] {e}")
+    else:
+        print("  [notify] R2 not configured, skipping video upload.")
+
+    # 2. Always send Webhook if configured
+    if make_webhook_url and requests:
+        try:
+            # Form the rich tweet text for social media posting: ONLY market info
+            if market_info:
+                b_cur, b_prev = market_info.get("brent", (0,0))
+                g_cur, g_prev = market_info.get("gas", (0,0))
+                b_sym = "▲" if b_cur > b_prev else "▼" if b_cur < b_prev else ""
+                g_sym = "▲" if g_cur > g_prev else "▼" if g_cur < g_prev else ""
+                tweet_text = f"Brent ${b_cur:.1f} {b_sym} | Gas, VA ${g_cur:.2f} {g_sym}"
+            else:
+                tweet_text = "Market data update"
+
             payload = {
                 "url": video_url,
-                "subtitle": subtitle_code,
+                "tweet_text": tweet_text,
                 "description": camera.get("description", "") if camera else "",
                 "jurisdiction": camera.get("jurisdiction", "") if camera else "",
                 "radio_name": radio_name,
                 "radio_countrycode": radio_countrycode,
+                "brent_price": market_info.get("brent", (0,0))[0] if market_info else 0,
+                "gas_price": market_info.get("gas", (0,0))[0] if market_info else 0
             }
-            requests.post(make_webhook_url, json=payload, timeout=10)
-    except Exception as e:
-        print(f"  [notify error] {e}")
+            # print(f"  Sending metadata to Make.com…")
+            # resp = requests.post(make_webhook_url, json=payload, timeout=10)
+            # if resp.status_code in [200, 202]:
+            #     print(f"✓ Webhook delivered ({resp.status_code} {resp.reason})")
+            # else:
+            #     print(f"✗ Webhook failed ({resp.status_code} {resp.reason})")
+            pass
+        except Exception as e:
+            print(f"  [webhook error] {e}")
 
 
 # ── Generator ──────────────────────────────────────────────────────────────────
-
 def generate() -> Path:
     rng = random.Random()
     now_dt = datetime.now()
@@ -827,7 +853,6 @@ def generate() -> Path:
     # 4. Select camera
     camera = pick_camera(rng)
     cam_id = camera.get("id", "nocam") if camera else "nocam"
-    subtitle_code = build_subtitle(camera, now_dt.date()) if camera else ""
 
     print(f"  radio    {radio_name}")
     print(f"  camera   {cam_id}")
@@ -943,7 +968,33 @@ def generate() -> Path:
             out_path = OUTPUT_DIR / out_name.replace(".mp4", ".wav")
 
     print(f"\n✓  {out_path.name}")
-    notify_make(out_path, subtitle_code, camera, cur_name, cur_code)
+    
+    # Market info for tweet/notifications
+    market_info = {
+        "brent": (brent_cur, brent_prev),
+        "gas": (gas_cur, gas_prev)
+    }
+
+    # Build subtitle code
+    track_code = build_subtitle(camera, now_dt.date())
+
+    # Save metadata for stoneage_tweeter.py (still useful for local reference)
+    latest_meta = {
+        "video_path": str(out_path),
+        "brent_cur": brent_cur,
+        "brent_prev": brent_prev,
+        "gas_cur": gas_cur,
+        "gas_prev": gas_prev,
+        "camera": camera,
+        "radio_name": cur_name,
+        "radio_countrycode": cur_code,
+        "subtitle": track_code,
+        "generated_at": datetime.now().isoformat()
+    }
+    with open(OUTPUT_DIR / "latest_meta.json", "w") as f:
+        json.dump(latest_meta, f, indent=2)
+
+    notify_make(out_path, camera, cur_name, cur_code, market_info=market_info)
     return out_path
 
 

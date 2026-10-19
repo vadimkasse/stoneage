@@ -1,37 +1,64 @@
 #!/bin/bash
-# STONEAGE Scheduler Setup
-# Usage: ./set_stoneage_schedule.sh HOURS="9 14" MIN="1 31" SEC=0
+# STONEAGE Scheduler Setup (LaunchAgent version)
+# Usage: ./set_stoneage_schedule.sh HOURS="9 14" MIN=1 SEC=30
 
-# Default values (9:01 and 14:31)
+# 1. Parse arguments like KEY=VALUE
+for arg in "$@"; do
+    case "$arg" in
+        HOURS=*) HOURS="${arg#*=}" ;;
+        MIN=*)   MIN="${arg#*=}" ;;
+        SEC=*)   SEC="${arg#*=}" ;;
+    esac
+done
+
+# 2. Defaults if not provided via args or env
 HOURS="${HOURS:-9 14}"
-MIN="${MIN:-1 31}"
+MIN="${MIN:-1}"
 SEC="${SEC:-0}"
 
 PROJECT_DIR="/Users/vadimkasse/Projects/stoneage"
 SCRIPT_PATH="$PROJECT_DIR/run_stoneage.sh"
-PLIST_PATH="$HOME/Library/LaunchAgents/com.stoneage.daily.plist"
+LABEL="com.stoneage.daily"
+PLIST_PATH="$HOME/Library/LaunchAgents/$LABEL.plist"
 
-# 1. Clean existing crontab entries for stoneage
-crontab -l | grep -v "stoneage" > mycron
+# Unload existing agent
+launchctl unload "$PLIST_PATH" 2>/dev/null
 
-# 2. Add new entries
+# Build PLIST XML
+echo '<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>'$LABEL'</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>'$SCRIPT_PATH'</string>
+        <string>'$SEC'</string>
+    </array>
+    <key>StartCalendarInterval</key>
+    <array>' > "$PLIST_PATH"
+
 for h in $HOURS; do
-    for m in $MIN; do
-        # We only add specific pairs if they are provided, 
-        # but to keep it simple like your lumen example:
-        echo "$m $h * * * /bin/bash $SCRIPT_PATH $SEC >> $PROJECT_DIR/cron.log 2>&1" >> mycron
-    done
+    echo "        <dict>
+            <key>Hour</key>
+            <integer>$h</integer>
+            <key>Minute</key>
+            <integer>$MIN</integer>
+        </dict>" >> "$PLIST_PATH"
 done
 
-# Special case for your request: 9:01 and 14:31
-# If you run without arguments, we'll just set these two specifically:
-if [ "$#" -eq 0 ]; then
-    echo "1 9 * * * /bin/bash $SCRIPT_PATH $SEC >> $PROJECT_DIR/cron.log 2>&1" > mycron
-    echo "31 14 * * * /bin/bash $SCRIPT_PATH $SEC >> $PROJECT_DIR/cron.log 2>&1" >> mycron
-fi
+echo '    </array>
+    <key>StandardOutPath</key>
+    <string>'$HOME'/Library/Logs/stoneage.log</string>
+    <key>StandardErrorPath</key>
+    <string>'$HOME'/Library/Logs/stoneage.error.log</string>
+</dict>
+</plist>' >> "$PLIST_PATH"
 
-crontab mycron
-rm mycron
+# Load the agent
+launchctl load "$PLIST_PATH"
 
-echo "✓ StoneAge schedule updated in crontab."
-crontab -l | grep "stoneage"
+echo "✓ StoneAge schedule updated: $PLIST_PATH"
+echo "Times: $HOURS:$MIN (Delay: $SEC seconds)"

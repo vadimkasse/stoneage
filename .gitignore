@@ -9,3 +9,6 @@ __pycache__/
 cron.log
 mycron
 combined_overlay_*.png
+*.bak
+telegram_state.json
+the StoneAge/

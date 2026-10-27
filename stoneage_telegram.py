@@ -61,7 +61,7 @@ MONTHS_RU = [
 
 def format_ru_date(dt: datetime) -> str:
     month_name = MONTHS_RU[dt.month - 1]
-    return f"<u>{dt.day} {month_name}</u>"
+    return f"Новости Дональда и Марко от <u>{dt.day} {month_name}</u>"
 
 
 def build_caption(meta: dict) -> str:

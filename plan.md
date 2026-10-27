@@ -1,45 +1,59 @@
-# Plan: Переход с Twitter на Telegram-канал (StoneAge)
+# Plan: Очистка проекта stoneage и архивация исходников
 
 ## Context
-Проект StoneAge генерирует видеоролик (59 сек) с живыми камерами VDOT, аудиопотоком радио и ценами на нефть Brent и бензин в Вирджинии.
-Ранее скрипт `stoneage_tweeter.py` публиковал видео в Twitter через X API v1.1/v2, удаляя предыдущий твит, но из-за исчерпания кредитов X API (ошибка 402) постинг остановился, и фоновый агент был отключен.
+В проекте `/Users/vadimkasse/Projects/stoneage` накопились неиспользуемые файлы объемом ~270 МБ:
+- Устаревший кэш профиля браузера Chrome `private/browser_session/` (122 МБ).
+- Архивные видеоролики в `output/` (15 файлов .mp4 общим весом ~90 МБ).
+- Старый скрипт `stoneage_tweeter.py` и лог `cron.log`.
+- 5 файлов резервных копий `.bak`.
+- Исходники графики `the StoneAge/` (52 МБ) и неиспользуемый шрифт `HomeVideo-Regular.ttf`.
 
 ## Goal
-Перевести публикацию видео и данных из Twitter в Telegram-канал:
-- Постинг в Telegram бесплатный и не требует оплаты API.
-- Бот обновляет один закрепленный/единственный пост в канале (видео + текст).
-- Механика надежна: в первую очередь используется редактирование медиа (`editMessageMedia`), а в случае превышения лимита давности Telegram — тихое удаление и отправка нового поста без звука (`disable_notification=True`).
+1. Удалить ненужный кэш, старые видео (оставив последнее актуальное и `latest_meta.json`), устаревший код твиттера, старый крон-лог и `.bak` файлы.
+2. Переместить в папку `archive/` исходники графики (`the StoneAge/`), неиспользуемый шрифт и файлы примеров.
+3. Обеспечить сохранность данных: перемещение удаляемых файлов через временную директорию `_trash/` перед финальным удалением.
 
 ## Approach
-1. Создать модуль `stoneage_telegram.py`, заменяющий логику `stoneage_tweeter.py`.
-2. В файле конфигурации `.env` добавить переменные:
-   - `TELEGRAM_BOT_TOKEN` (токен от @BotFather)
-   - `TELEGRAM_CHAT_ID` (ID канала или @username)
-   - `TELEGRAM_MESSAGE_ID` (ID поста, который редактируется; обновляется автоматически)
-3. Логика публикации:
-   - Если `TELEGRAM_MESSAGE_ID` задан: попытка `editMessageMedia` (InputMediaVideo + caption).
-   - Если попытка не удалась (например, сообщение удалено или истек таймаут Telegram): удалить старое (если доступно), отправить новое видео через `sendVideo` с параметром `disable_notification=True`, сохранить новый ID в `.env` или локальный стейт-файл (`state.json`).
-4. Обновить оркестратор `run_stoneage.sh`: вызывать `stoneage_telegram.py` вместо `stoneage_tweeter.py`.
-5. Снова включить расписание `launchd`: вернуть `com.stoneage.daily.plist.disabled` -> `com.stoneage.daily.plist` и загрузить в `launchctl`.
+1. Создать локальную папку `_trash/` для безопасного промежуточного хранения удаляемых файлов:
+   - `private/browser_session/`
+   - 15 старых mp4-файлов из `output/` (сохраняем `20261027_0903_cam4554_Bloomberg_Radio.mp4` и `latest_meta.json`)
+   - `stoneage_tweeter.py`
+   - `cron.log`
+   - `.bak` файлы: `README.md.bak`, `run_stoneage.sh.bak`, `stoneage_telegram.py.bak`, `.env.bak`, `telegram_state.json.bak`.
+2. Создать папку `archive/` в корне проекта (`/Users/vadimkasse/Projects/stoneage/archive/`).
+3. Переместить в `archive/`:
+   - папку `the StoneAge/`
+   - `HomeVideo-Regular.ttf`
+   - `camera_catalog.example.csv`
+   - `camera_pool.example.json`
+4. Добавить `archive/` и `_trash/` в `.gitignore` (если еще не добавлены), чтобы не засорять git.
+5. Проверить работоспособность генератора и скрипта Telegram (dry run).
+6. Зафиксировать изменения в `CHANGELOG.md`.
 
 ## Files touched
-- `stoneage_telegram.py` (новый скрипт публикации в Telegram)
-- `run_stoneage.sh` (замена вызова `stoneage_tweeter.py` на `stoneage_telegram.py`)
-- `.env` (добавление настроек Telegram)
-- `~/Library/LaunchAgents/com.stoneage.daily.plist` (реактивация задачи)
-- `README.md` (обновление описания под Telegram)
+- `private/browser_session/` (в `_trash/`)
+- `output/*.mp4` (старые, в `_trash/`)
+- `stoneage_tweeter.py` (в `archive/`)
+- `cron.log` (в `_trash/`)
+- `*.bak` (в `_trash/`)
+- `the StoneAge/` (в `archive/`)
+- `HomeVideo-Regular.ttf` (в `archive/`)
+- `camera_catalog.example.csv` (в `archive/`)
+- `camera_pool.example.json` (в `archive/`)
+- `.gitignore`
+- `CHANGELOG.md`
 
 ## Acceptance criteria
-- [x] Бот успешно отправляет сгенерированное видео с текстом котировок в указанный Telegram-канал.
-- [x] При повторном запуске бот обновляет существующее сообщение (заменяет видео и текст котировок), либо тихо пересоздает его без уведомления подписчиков.
-- [x] Скрипт не падает при сетевых ошибках Telegram API.
-- [x] Фоновый запуск дважды в день через launchd восстановлен и работает без ошибок в `stoneage.error.log`.
+- [x] Все удаляемые файлы предварительно перемещены в `_trash/`.
+- [x] В `output/` остались только последнее видео и `latest_meta.json`.
+- [x] Исходники дизайна и неиспользуемые шрифты/шаблоны перемещены в `archive/`.
+- [x] Рабочие файлы проекта (`stoneage_generator.py`, `stoneage_telegram.py`, `run_stoneage.sh`, `the_StoneAge_layer.png`, `.env`, `telegram_state.json`) не затронуты.
+- [x] `CHANGELOG.md` обновлен.
 
 ## Conventions to follow
-- Использовать `requests` для вызовов Telegram Bot API (без необходимости ставить тяжелые сторонние библиотеки).
-- Сохранять существующую структуру форматирования текста из `stoneage_tweeter.py` (`build_tweet_text` -> `build_telegram_caption`).
-- Читать метаданные из `output/latest_meta.json`.
+- Правило Data Safety: удаление через `_trash/`, удаление самого `_trash/` только после финального подтверждения пользователя.
+- Не трогать боевые данные и рабочие шрифты (`HomeVideo-Bold.ttf`, `flintstone.ttf`).
 
 ## What we evaluate after
-- Запуск `stoneage_telegram.py` вручную и проверка появления/обновления видео в целевом Telegram-канале.
-- Проверка лога `~/Library/Logs/stoneage.log`.
+- Структура каталога проекта стала чистой и компактной (объем проекта уменьшится более чем в 2 раза).
+- Скрипты генератора и отправщика работают штатно.

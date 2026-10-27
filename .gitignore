@@ -12,3 +12,5 @@ combined_overlay_*.png
 *.bak
 telegram_state.json
 the StoneAge/
+_trash/
+archive/

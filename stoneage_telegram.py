@@ -53,8 +53,30 @@ def save_state(state: dict):
         print(f"[ERROR] Failed to save state file: {e}")
 
 
+MONTHS_RU = [
+    "января", "февраля", "марта", "апреля", "мая", "июня",
+    "июля", "августа", "сентября", "октября", "ноября", "декабря"
+]
+
+
+def format_ru_date(dt: datetime) -> str:
+    month_name = MONTHS_RU[dt.month - 1]
+    return f"<u>{dt.day} {month_name}</u>"
+
+
 def build_caption(meta: dict) -> str:
-    """Constructs caption from metadata matching original StoneAge format."""
+    """Constructs localized caption from metadata with HTML formatting."""
+    gen_at = meta.get("generated_at")
+    if gen_at:
+        try:
+            dt = datetime.fromisoformat(gen_at)
+        except Exception:
+            dt = datetime.now()
+    else:
+        dt = datetime.now()
+
+    date_line = format_ru_date(dt)
+
     b_cur = meta.get("brent_cur", 0)
     b_prev = meta.get("brent_prev", 0)
     g_cur = meta.get("gas_cur", 0)
@@ -63,19 +85,13 @@ def build_caption(meta: dict) -> str:
     b_sym = "▲" if b_cur > b_prev else "▼" if b_cur < b_prev else " "
     g_sym = "▲" if g_cur > g_prev else "▼" if g_cur < g_prev else " "
 
-    line1 = f"Brent ${b_cur:.1f} {b_sym} | Gas, VA ${g_cur:.2f} {g_sym}"
-
-    camera = meta.get("camera", {})
-    jurisdiction = camera.get("jurisdiction", "Virginia")
-    if isinstance(jurisdiction, list) and jurisdiction:
-        jurisdiction = jurisdiction[0]
-
-    line2 = f"online VaDOT camera {jurisdiction}"
+    line1 = f"Нефть <b>${b_cur:.1f}</b> {b_sym} | Бензин в США <b>${g_cur:.2f}</b> {g_sym}"
+    line2 = "видео - онлайн камеры Вирджинии"
 
     radio_name = meta.get("radio_name", "")
-    line3 = f"news from {radio_name}"
+    line3 = f"радио на фоне - {radio_name}"
 
-    return f"{line1}\n{line2}\n{line3}"
+    return f"{date_line}\n\n{line1}\n{line2}\n{line3}"
 
 
 def delete_message(message_id: int):
@@ -98,6 +114,7 @@ def send_new_video(video_path: Path, caption: str) -> int:
     data = {
         "chat_id": CHAT_ID,
         "caption": caption,
+        "parse_mode": "HTML",
         "disable_notification": True
     }
     with open(video_path, "rb") as f:
@@ -120,7 +137,8 @@ def edit_existing_video(message_id: int, video_path: Path, caption: str) -> bool
     media_payload = {
         "type": "video",
         "media": "attach://video_file",
-        "caption": caption
+        "caption": caption,
+        "parse_mode": "HTML"
     }
     data = {
         "chat_id": CHAT_ID,
@@ -136,6 +154,28 @@ def edit_existing_video(message_id: int, video_path: Path, caption: str) -> bool
         return True
     else:
         print(f"[WARN] editMessageMedia failed ({resp.status_code}): {resp.text}")
+        return False
+
+
+def edit_message_caption(message_id: int, caption: str) -> bool:
+    """Edits caption of existing message via editMessageCaption."""
+    print(f"--- Editing Caption of Existing Message: {message_id} ---")
+    url = f"{API_BASE}/editMessageCaption"
+    data = {
+        "chat_id": CHAT_ID,
+        "message_id": message_id,
+        "caption": caption,
+        "parse_mode": "HTML"
+    }
+    resp = requests.post(url, data=data, timeout=30)
+    if resp.status_code == 200 and resp.json().get("ok"):
+        print(f"✓ Message {message_id} caption edited successfully.")
+        return True
+    elif "message is not modified" in resp.text:
+        print(f"✓ Message {message_id} caption is already up to date.")
+        return True
+    else:
+        print(f"[WARN] editMessageCaption failed ({resp.status_code}): {resp.text}")
         return False
 
 
@@ -159,6 +199,17 @@ def main():
 
     state = load_state()
     prev_msg_id = state.get("message_id")
+
+    if "--caption-only" in sys.argv:
+        if prev_msg_id:
+            ok = edit_message_caption(prev_msg_id, caption)
+            if ok:
+                state["updated_at"] = datetime.now().isoformat()
+                save_state(state)
+                return
+            sys.exit(1)
+        print("[ERROR] Cannot update caption only: no message_id found.")
+        sys.exit(1)
 
     updated = False
     if prev_msg_id:

@@ -1,26 +1,40 @@
 # StoneAge: Automated Media Synthesis & Data Pipeline
 
-**StoneAge** is an automated content engine designed to synthesize real-time market data, live audio streams, and traffic infrastructure feeds into dynamic video updates for Telegram.
+**StoneAge** is an automated media pipeline designed to synthesize real-time commodity data, live radio audio streams, and highway infrastructure camera feeds into dynamic video updates for Telegram.
 
 ## 🛠 Technical Overview
 
-This project showcases a complete media lifecycle—from raw data ingestion to automated social media distribution—built with a focus on reliability and zero operational cost.
+This project implements a complete automated media lifecycle—from multi-source data ingestion to social media distribution—with zero operational cost and automated daily execution.
 
-### Key Technical Challenges & Solutions:
+### Key Features & Architecture
 
-*   **Real-Time Media Mixing (FFmpeg):** Orchestrates complex multi-track synthesis by blending highway ambient audio, live MP3 radio streams (Bloomberg, WNYC, NPR), and HLS video feeds from VDOT traffic cameras.
-*   **Dynamic Data Overlay:** Implements a custom graphics layer using Python (Pillow) to render real-time Brent Crude Oil and Virginia Gas price fluctuations directly onto video frames.
-*   **Telegram Channel Distribution (`editMessageMedia`):** Updates a single video post in a Telegram channel in place without creating new notification noise. Falls back to silent delete-and-post (`disable_notification=True`) if the platform requires message recreation.
-*   **Fault-Tolerant Audio Processing:** Includes an automated "Preflight & Validation" system for radio streams, using Silero VAD (Voice Activity Detection) to ensure speech quality before recording.
+*   **Real-Time Media Mixing (FFmpeg):** Synthesizes dynamic 60-second video by blending ambient highway audio, live radio streams (Bloomberg Radio, WNYC, NPR), and HLS live video from Virginia Department of Transportation (VDOT) cameras.
+*   **Dynamic Data Overlay (Pillow):** Renders real-time Brent Crude Oil and Virginia gasoline price fluctuations directly onto video frames using custom retro typography.
+*   **Telegram Channel Distribution:** Automatically maintains and silently updates a single video post in [@barkassepodcast](https://t.me/barkassepodcast) using Telegram Bot API (`editMessageMedia` and `editMessageCaption`).
+*   **HTML Rich Formatting:** Formats captions dynamically with underlined localized date (`<u>...</u>`), bold commodity values (`<b>$110.1</b>`), price trend arrows (`▲`/`▼`), and radio source attribution.
+*   **Audio Quality Assurance:** Integrates Silero VAD (Voice Activity Detection) for stream validation before recording to ensure high speech quality.
+*   **Scheduling:** Scheduled via macOS LaunchAgent (`com.stoneage.daily.plist`) once daily at 11:00 AM EDT.
 
 ## 🏗 Stack & Infrastructure
 
-*   **Core Logic:** Python 3.x
-*   **Media Processing:** FFmpeg (Subprocess orchestration)
-*   **Data Sources:** yfinance (Market data), Cloudscraper (Web scraping), HLS/M3U8 (Live video feeds)
-*   **APIs:** Telegram Bot API, Cloudflare R2 (Storage fallback)
-*   **Scheduling:** macOS LaunchAgent (`com.stoneage.daily.plist`) for precise scheduled execution.
+*   **Core Logic:** Python 3.13 / bash
+*   **Media Processing:** FFmpeg, Pillow, pydub
+*   **Data Sources:** `yfinance` (Brent crude), `cloudscraper` (gas prices), HLS/M3U8 (traffic cameras)
+*   **APIs:** Telegram Bot API (channel distribution), Cloudflare R2 (storage backup)
+*   **Scheduler:** macOS LaunchAgent
 
-## 📈 Performance & Scalability
+## 🚀 Usage
 
-The architecture is designed to be lightweight and portable. By offloading media processing to FFmpeg and using Telegram's free Bot API, the bot operates at zero API cost while maintaining continuous automated updates.
+```bash
+# Full generation and publishing cycle
+./run_stoneage.sh
+
+# Run publisher only (updates video and caption in channel)
+python3 stoneage_telegram.py
+
+# Test/update text caption only without re-uploading video
+python3 stoneage_telegram.py --caption-only
+
+# Configure LaunchAgent schedule (e.g. 11:00 AM EDT)
+./set_stoneage_schedule.sh HOURS="11" MIN=0 SEC=0
+```
